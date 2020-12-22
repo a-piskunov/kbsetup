@@ -521,8 +521,10 @@ int main(int argc, char *argv[])
     }
     for (; i < ev_offset; i++) {
         if (ev[i].type == EV_KEY && ev[i].value >= 0 && ev[i].value <= 1) {
-            array_of_actions[num_actions] = ev[i];
-            num_actions += 1;
+            if (ev[i].code != KEY_ENTER) {
+                array_of_actions[num_actions] = ev[i];
+                num_actions += 1;
+            }
 //            dprintf(fd_write, "user %s Event: time %ld.%06ld, %s 0x%04x (%d)\n", user, ev[i].time.tv_sec,
 //                    ev[i].time.tv_usec, evval[ev[i].value], (int) ev[i].code, (int) ev[i].code);
         }
