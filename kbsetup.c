@@ -23,10 +23,13 @@ int main(int argc, char *argv[]) {
         printf("You must be root to use kbsetup\n");
         return EXIT_FAILURE;
     }
-    if(argc != 2) {
+    if(argc > 3) {
         printf("Usage: app [username]\n");
         return EXIT_FAILURE;
     }
+
+
+
     const char* user;
     user = argv[1];
     pam_handle_t* pamh = NULL;
