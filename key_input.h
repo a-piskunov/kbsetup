@@ -6,7 +6,7 @@
 
 #define NAME_ELEMENT(element) [element] = #element
 
-static const char * const keys[KEY_MAX + 1] = {
+char * const keys[KEY_MAX + 1] = {
         [0 ... KEY_MAX] = NULL,
         NAME_ELEMENT(KEY_RESERVED),		NAME_ELEMENT(KEY_ESC),
         NAME_ELEMENT(KEY_1),			NAME_ELEMENT(KEY_2),
@@ -397,7 +397,3 @@ static const char * const keys[KEY_MAX + 1] = {
         NAME_ELEMENT(BTN_TOOL_QUINTTAP),
 #endif
 };
-
-int main() {
-    printf("%s\n", keys[19]);
-}

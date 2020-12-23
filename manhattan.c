@@ -7,10 +7,10 @@ void compute_std_mean(double* fit_vectors, int fit_vectors_num, int features_num
                       double *flight_mean, double *flight_std, double *hold_mean, double *hold_std)
 {
     int i, j;
-    double *sum;
-    sum = calloc(features_number, sizeof(*sum));
-    printf("print_array\n");
-    print_array(fit_vectors, fit_vectors_num, features_number);
+//    printf("__compute_std_mean__\n");
+    double *sum = calloc(features_number, sizeof(double));
+//    printf("print_array\n");
+//    print_array(fit_vectors, fit_vectors_num, features_number);
     for (i=0; i<fit_vectors_num; i++)
     {
         for (j=0; j<features_number; j++)
@@ -18,11 +18,11 @@ void compute_std_mean(double* fit_vectors, int fit_vectors_num, int features_num
             sum[j] += fit_vectors[i * features_number + j];
         }
     }
-    printf("sum: ");
+//    printf("sum: ");
     for (j=0; j<features_number; j++) {
         printf("%f ", sum[j]);
     }
-    printf("\n");
+//    printf("\n");
     *hold_mean = 0;
     *flight_mean = 0;
     for (i=0; i<features_number; i++)
@@ -33,17 +33,18 @@ void compute_std_mean(double* fit_vectors, int fit_vectors_num, int features_num
             *flight_mean += sum[i];
         }
     }
-    printf("*hold_mean: %f\n", *hold_mean);
-    printf("*flight_mean: %f\n", *flight_mean);
+    free(sum);
+//    printf("*hold_mean: %f\n", *hold_mean);
+//    printf("*flight_mean: %f\n", *flight_mean);
     double hold_number = ((features_number + 1) / 2) * fit_vectors_num;
     double flight_number = ((features_number - 1) / 2) * fit_vectors_num;
-    printf("hold_number: %f\n", hold_number);
-    printf("flight_number: %f\n", flight_number);
-    printf("simple / %f\n", *hold_mean / hold_number);
+//    printf("hold_number: %f\n", hold_number);
+//    printf("flight_number: %f\n", flight_number);
+//    printf("simple / %f\n", *hold_mean / hold_number);
     *hold_mean /= hold_number;
     *flight_mean /= flight_number;
-    printf("*hold_mean: %f\n", *hold_mean);
-    printf("*flight_mean: %f\n", *flight_mean);
+//    printf("*hold_mean: %f\n", *hold_mean);
+//    printf("*flight_mean: %f\n", *flight_mean);
     *hold_std = 0;
     *flight_std = 0;
 
@@ -105,27 +106,27 @@ void fit_classifier(double *fit_vectors, int fit_vectors_num,
         mean_vector[i] /= fit_vectors_num;
     }
     if (*norm_score < 0) {
-        printf("calc norm score\n");
-        double *fit_scores;
-        fit_scores = calloc(features_number, sizeof(*fit_scores));
+//        printf("calc norm score\n");
+        double *fit_scores = calloc(features_number, sizeof(*fit_scores));
         double scores_mean = 0;
-        printf("scores_mean: ");
+//        printf("scores_mean: ");
         for (int i=0; i<fit_vectors_num; i++) {
             fit_scores[i] = score_vector(features_number, mean_vector, fit_vectors + i * features_number, (double)1);
             scores_mean += fit_scores[i];
-            printf("%f ", fit_scores[i]);
+//            printf("%f ", fit_scores[i]);
         }
-        printf("\n");
+//        printf("\n");
         scores_mean /= fit_vectors_num;
-        printf("scores_mean %f\n", scores_mean);
+//        printf("scores_mean %f\n", scores_mean);
         double scores_std = 0;
         for (int i=0; i<fit_vectors_num; i++) {
             scores_std += pow(fit_scores[i] - scores_mean, 2);
         }
+        free(fit_scores);
         scores_std = sqrt(scores_std / fit_vectors_num);
-        printf("scores_std: %f\n", scores_std);
+//        printf("scores_std: %f\n", scores_std);
         *norm_score = fabs(scores_mean - 2 * scores_std);
-        printf("norm_score %f\n", *norm_score);
+//        printf("norm_score %f\n", *norm_score);
     }
 }
 
@@ -149,35 +150,30 @@ void print_array(double *array, int rows, int cols) {
 
 double score_keystrokes(double *fit_vectors, int fit_vectors_num, int features_number,
                         double *target_vector, double *norm_score) {
-    printf("__score_keystrokes__\n");
-    printf("fit_vectors_num %d\n", fit_vectors_num);
-    printf("features_number %d\n", features_number);
-    printf("norm_score %f\n", *norm_score);
-    print_array(fit_vectors, fit_vectors_num, features_number);
-
     double flight_mean, flight_std, hold_mean, hold_std;
     compute_std_mean(fit_vectors, fit_vectors_num, features_number, &flight_mean, &flight_std, &hold_mean, &hold_std);
 
-    printf("flight_mean: %.2f\nflight_std: %.2f\nhold_mean: %.2f\nhold_std: %.2f\n",
-           flight_mean, flight_std, hold_mean, hold_std);
+//    printf("flight_mean: %.2f\nflight_std: %.2f\nhold_mean: %.2f\nhold_std: %.2f\n",
+//           flight_mean, flight_std, hold_mean, hold_std);
     normalize_vectors(fit_vectors, fit_vectors_num, features_number, &flight_mean, &flight_std, &hold_mean, &hold_std);
-    print_array(fit_vectors, fit_vectors_num, features_number);
-    double *mean_vector;
-    mean_vector = calloc(features_number, sizeof(*mean_vector));
+//    print_array(fit_vectors, fit_vectors_num, features_number);
+    double *mean_vector = calloc(features_number, sizeof(double));
     fit_classifier(fit_vectors, fit_vectors_num, features_number, mean_vector, norm_score);
-    printf("mean_vector :\n");
+//    printf("mean_vector :\n");
     for (int i = 0; i<features_number; i++) {
         printf("%5.2f ", mean_vector[i]);
     }
-    printf("\n");
+//    printf("\n");
 
     normalize_line(target_vector, features_number, &flight_mean, &flight_std, &hold_mean, &hold_std);
 
-    printf("target_norm_vector :\n");
-    for (int i = 0; i<features_number; i++) {
-        printf("%5.2f ", target_vector[i]);
-    }
-    printf("\n");
-    printf("norm_score %f\n", *norm_score);
-    return score_vector(features_number, mean_vector, target_vector, *norm_score);
+//    printf("target_norm_vector :\n");
+//    for (int i = 0; i<features_number; i++) {
+//        printf("%5.2f ", target_vector[i]);
+//    }
+//    printf("\n");
+//    printf("norm_score %f\n", *norm_score);
+    double score = score_vector(features_number, mean_vector, target_vector, *norm_score);
+    free(mean_vector);
+    return score;
 }

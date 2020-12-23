@@ -12,12 +12,12 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include "manhattan.h"
+#include "key_input.h"
 
 #define KEYSTROKE_HELPER "/home/alexey/Documents/kbsetup/keystroke_helper"
 #define CONFIG_KEYBOARD "/etc/keyboard-config"
-#define PASSWORD_NUMBER 20
-
-
+#define PASSWORD_NUMBER 5
+ //Длинный 20
 /* conversation function for PAM module */
 const struct pam_conv conv = {
         misc_conv,
@@ -226,8 +226,8 @@ int main(int argc, char *argv[]) {
             close(fd_to_helper[1]);
 
             for (int i=0; i<keys_number; i++) {
-                printf("Event: time %ld.%06ld, %d (%d)\n", array_of_actions[i].time.tv_sec,
-                       array_of_actions[i].time.tv_usec, array_of_actions[i].value, array_of_actions[i].code);
+                printf("Event: time %ld.%06ld, %d (%s)\n", array_of_actions[i].time.tv_sec,
+                       array_of_actions[i].time.tv_usec, array_of_actions[i].value, keys[array_of_actions[i].code]);
             }
 
             while ((rc = waitpid(pid, &retval, 0)) < 0 && errno == EINTR);
@@ -256,15 +256,15 @@ int main(int argc, char *argv[]) {
         char user_file_path[100] = "/etc/keystroke-pam/";
         strcat(user_file_path, arg_username);
         printf("user_file_path %s\n", user_file_path);
-//        int fd;
-//        if (fd = open(user_file_path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR) < 0) {
-//            if (errno == EEXIST) {
-//                printf("Эталон уже существует, для обновления воспользуйтесь опцией -u\n");
-//            } else {
-//                printf("При создании файла с параметрами эталона возникла ошибка\n");
-//            }
-//            exit(EXIT_FAILURE);
-//        };
+        int fd = open(user_file_path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+        if (fd < 0) {
+            if (errno == EEXIST) {
+                printf("Эталон уже существует, для обновления воспользуйтесь опцией -u\n");
+            } else {
+                printf("При создании файла с параметрами эталона возникла ошибка\n");
+            }
+            exit(EXIT_FAILURE);
+        };
         FILE *fp;
         char *keyboard_file = NULL;
         size_t len = 0;
@@ -279,7 +279,7 @@ int main(int argc, char *argv[]) {
             exit(EXIT_FAILURE);
         }
         printf("read string: %s\n", keyboard_file);
-
+//        free(line);
         pam_handle_t* pamh = NULL;
         int retval;
         retval = pam_start("kbsetup", arg_username, &conv, &pamh);
@@ -441,6 +441,7 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < features_num; i++) {
             passwords_features[i] = time_features[i];
         }
+        free(time_features);
         printf("features_num %d\n", features_num);
         printf("keycodes_num %d\n", keycodes_num);
         for (int i = 0; i < keycodes_num; i++) {
@@ -535,9 +536,9 @@ int main(int argc, char *argv[]) {
                 long int last_press_time_usec = 0;
                 int input_keycodes_num = 0;
                 int input_features_num = 0;
-                double *time_features;
+                double *input_time_features;
                 int *input_keycodes;
-                time_features = malloc((keys_number - 1) * sizeof(*time_features));
+                input_time_features = malloc((keys_number - 1) * sizeof(*input_time_features));
                 input_keycodes = malloc((keys_number - 1) * sizeof(*input_keycodes));
                 for (int i = 0; i < keys_number; i++) {
                     printf("for i: %d \n", i);
@@ -552,7 +553,7 @@ int main(int argc, char *argv[]) {
                                 printf("При выделении параметров произошла ошибка");
                                 return EXIT_FAILURE;
                             }
-                            time_features[input_features_num] = flight;
+                            input_time_features[input_features_num] = flight;
                             input_features_num++;
                             printf("flight %f", flight);
                         }
@@ -572,7 +573,7 @@ int main(int argc, char *argv[]) {
                                     printf("При выделении параметров произошла ошибка\n");
                                     return EXIT_FAILURE;
                                 }
-                                time_features[input_features_num] = hold;
+                                input_time_features[input_features_num] = hold;
                                 input_features_num++;
                                 not_found_up = false;
                                 printf("hold %f\n", hold);
@@ -614,6 +615,7 @@ int main(int argc, char *argv[]) {
                         }
                     }
                 }
+                free(input_keycodes);
                 if (!correct_sequence) {
                     printf("Несоответствие последовательности клавиш при наборе пароля\n");
                     continue;
@@ -621,13 +623,14 @@ int main(int argc, char *argv[]) {
                     printf("ok\n");
                 }
                 for (int i = 0; i < input_features_num; i++) {
-                    passwords_features[(input_number - 1) * features_num + i] = time_features[i];
+                    passwords_features[(input_number - 1) * features_num + i] = input_time_features[i];
                 }
                 input_number++;
+                free(input_time_features);
             }
 
         }
-
+        free(correct_keycodes);
         for (int i = 0; i < PASSWORD_NUMBER; i++) {
             for (int j = 0; j < features_num; j++) {
                 printf("%5.2f ", passwords_features[i * features_num + j]);
@@ -660,23 +663,60 @@ int main(int argc, char *argv[]) {
             }
             printf("target:\n");
             for (int i = 0; i < features_num; i++) {
-                printf("%f ", *(passwords_features + (score_number * features_num) + i));
+                printf("score_number: %d, features_num: %d, i: %d\n", score_number, features_num, i);
+                printf("%f ", passwords_features[(score_number * features_num) + i]);
             }
+            printf("before n \n");
             printf("\n");
-            double *target;
-            target = malloc(features_num * sizeof(*target));
+            printf("before double");
+            double *target = malloc(features_num * sizeof(double));
+            printf("features_num %d", features_num);
             for (int i = 0; i < features_num; i++) {
+                printf("target i=%d", i);
                 target[i] = passwords_features[score_number * features_num + i];
             }
             validation_scores[score_number] = score_keystrokes(validation_features, PASSWORD_NUMBER - 1,
                                features_num, target, &norm_score);
+            free(target);
         }
+        free(validation_features);
         printf("validation_scores: ");
+        int bigger_thresh = 0;
         for (int i = 0; i < PASSWORD_NUMBER; i++) {
             printf("%5.2f ", validation_scores[i]);
+            if (validation_scores[i] < -1.2) {
+                bigger_thresh+= 1;
+            }
         }
-        printf("\n");
+        double *mean_vector = calloc(features_num, sizeof(double));
+        double norm_score = -1;
 
+        double *passwords_features_copy = malloc(features_num * (PASSWORD_NUMBER - 1) * sizeof(*validation_features));
+        for (int i = 0; i < PASSWORD_NUMBER; i++) {
+            for (int j = 0; j < features_num; j++) {
+                passwords_features_copy[i * features_num + j] = passwords_features[i * features_num + j];
+            }
+        }
+        double flight_mean, flight_std, hold_mean, hold_std;
+        compute_std_mean(passwords_features, PASSWORD_NUMBER, features_num, &flight_mean, &flight_std, &hold_mean, &hold_std);
+        normalize_vectors(passwords_features, PASSWORD_NUMBER, features_num, &flight_mean, &flight_std, &hold_mean, &hold_std);
+        fit_classifier(passwords_features, PASSWORD_NUMBER, features_num, mean_vector, &norm_score);
+        printf("norm_score %f", norm_score);
+        printf("\n");
+        printf("fd %d", fd);
+        dprintf(fd, "%f\n%d %d\n", norm_score, PASSWORD_NUMBER, features_num);
+        for (int i = 0; i < PASSWORD_NUMBER; i++) {
+            for (int j = 0; j < features_num; j++) {
+                dprintf(fd, "%.3f ", passwords_features_copy[i * features_num + j]);
+            }
+            dprintf(fd, "\n");
+        }
+        close(fd);
+        printf("Кол-во вводов, не совпадающих с эталоном на валидации: %d\n", bigger_thresh);
+        free(validation_scores);
+        free(mean_vector);
+        free(passwords_features_copy);
+        free(passwords_features);
         return EXIT_SUCCESS;
     }
     if (update_user) {
