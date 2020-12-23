@@ -11,10 +11,11 @@
 #include <stdbool.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include "manhattan.h"
 
 #define KEYSTROKE_HELPER "/home/alexey/Documents/kbsetup/keystroke_helper"
 #define CONFIG_KEYBOARD "/etc/keyboard-config"
-#define PASSWORD_NUMBER 5
+#define PASSWORD_NUMBER 20
 
 
 /* conversation function for PAM module */
@@ -255,15 +256,15 @@ int main(int argc, char *argv[]) {
         char user_file_path[100] = "/etc/keystroke-pam/";
         strcat(user_file_path, arg_username);
         printf("user_file_path %s\n", user_file_path);
-        int fd;
-        if (fd = open(user_file_path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR) < 0) {
-            if (errno == EEXIST) {
-                printf("Эталон уже существует, для обновления воспользуйтесь опцией -u\n");
-            } else {
-                printf("При создании файла с параметрами эталона возникла ошибка\n");
-            }
-            exit(EXIT_FAILURE);
-        };
+//        int fd;
+//        if (fd = open(user_file_path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR) < 0) {
+//            if (errno == EEXIST) {
+//                printf("Эталон уже существует, для обновления воспользуйтесь опцией -u\n");
+//            } else {
+//                printf("При создании файла с параметрами эталона возникла ошибка\n");
+//            }
+//            exit(EXIT_FAILURE);
+//        };
         FILE *fp;
         char *keyboard_file = NULL;
         size_t len = 0;
@@ -633,6 +634,48 @@ int main(int argc, char *argv[]) {
             }
             printf("\n");
         }
+        double *validation_scores;
+        validation_scores = malloc(PASSWORD_NUMBER * sizeof(*validation_scores));
+        double *validation_features;
+        validation_features = malloc(features_num * (PASSWORD_NUMBER - 1) * sizeof(*validation_features));
+        for (int score_number = 0; score_number < PASSWORD_NUMBER; score_number++) {
+            int validation_vec_num = 0;
+            for (int i = 0; i < PASSWORD_NUMBER; i++) {
+                if (i == score_number) {
+                    printf("validation cont i = %d\n", i);
+                    continue;
+                }
+                for (int j = 0; j < features_num; j++) {
+                    validation_features[validation_vec_num * features_num + j] = passwords_features[i * features_num + j];
+                }
+                printf("increment validation_vec_num: %d at i = %d\n", validation_vec_num++, i);
+            }
+            double norm_score = -1;
+            printf("validation_features:\n");
+            for (int i = 0; i < PASSWORD_NUMBER - 1; i++) {
+                for (int j = 0; j < features_num; j++) {
+                    printf("%5.2f ", validation_features[i * features_num + j]);
+                }
+                printf("\n");
+            }
+            printf("target:\n");
+            for (int i = 0; i < features_num; i++) {
+                printf("%f ", *(passwords_features + (score_number * features_num) + i));
+            }
+            printf("\n");
+            double *target;
+            target = malloc(features_num * sizeof(*target));
+            for (int i = 0; i < features_num; i++) {
+                target[i] = passwords_features[score_number * features_num + i];
+            }
+            validation_scores[score_number] = score_keystrokes(validation_features, PASSWORD_NUMBER - 1,
+                               features_num, target, &norm_score);
+        }
+        printf("validation_scores: ");
+        for (int i = 0; i < PASSWORD_NUMBER; i++) {
+            printf("%5.2f ", validation_scores[i]);
+        }
+        printf("\n");
 
         return EXIT_SUCCESS;
     }
