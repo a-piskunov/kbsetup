@@ -16,7 +16,7 @@
 
 #define KEYSTROKE_HELPER "/home/alexey/Documents/kbsetup/keystroke_helper"
 #define CONFIG_KEYBOARD "/etc/keyboard-config"
-#define PASSWORD_NUMBER 5
+#define PASSWORD_NUMBER 20
  //Длинный 20
 /* conversation function for PAM module */
 const struct pam_conv conv = {
@@ -266,9 +266,8 @@ int main(int argc, char *argv[]) {
             exit(EXIT_FAILURE);
         };
         FILE *fp;
-        char *keyboard_file = NULL;
+        char *keyboard_file;
         size_t len = 0;
-
         fp = fopen(CONFIG_KEYBOARD, "r");
         if (fp == NULL) {
             printf("Невозможно открыть файл конфигурации");
@@ -278,8 +277,9 @@ int main(int argc, char *argv[]) {
             printf("Невозможно прочитать файл конфигурации");
             exit(EXIT_FAILURE);
         }
+        fclose(fp);
         printf("read string: %s\n", keyboard_file);
-//        free(line);
+
         pam_handle_t* pamh = NULL;
         int retval;
         retval = pam_start("kbsetup", arg_username, &conv, &pamh);
@@ -352,9 +352,9 @@ int main(int argc, char *argv[]) {
                 }
                 retval = pam_authenticate(pamh, 0);
                 if (retval != PAM_SUCCESS) {
-                    kill(pid, SIGKILL);
+//                    kill(pid, SIGKILL);
                     printf("Некорректный пароль\n");
-                    continue;
+//                    continue;
                 } else {
                     no_password = false;
                 }
@@ -378,6 +378,7 @@ int main(int argc, char *argv[]) {
                 long int last_press_time_usec = 0;
                 time_features = malloc((correct_keys_number - 1) * sizeof(*time_features));
                 correct_keycodes = malloc((correct_keys_number - 1) * sizeof(*correct_keycodes));
+                features_num = 0;
                 for (int i = 0; i < correct_keys_number; i++) {
                     printf("for i: %d \n", i);
                     if (array_of_actions[i].value == 1) {
@@ -422,6 +423,10 @@ int main(int argc, char *argv[]) {
                         last_press_time_usec = array_of_actions[i].time.tv_usec;
                     }
                 }
+                if (no_password != false) {
+                    free(time_features);
+                    free(correct_keycodes);
+                }
                 int rc;
                 while ((rc = waitpid(pid, &retval, 0)) < 0 && errno == EINTR);
                 if (rc < 0) {
@@ -442,16 +447,6 @@ int main(int argc, char *argv[]) {
             passwords_features[i] = time_features[i];
         }
         free(time_features);
-        printf("features_num %d\n", features_num);
-        printf("keycodes_num %d\n", keycodes_num);
-        for (int i = 0; i < keycodes_num; i++) {
-            printf("%d ", correct_keycodes[i]);
-        }
-        printf("\n");
-        for (int i = 0; i < features_num; i++) {
-            printf("%f ", passwords_features[i]);
-        }
-        printf("\n");
 
         int input_number = 2;
         while (input_number <= PASSWORD_NUMBER) {
@@ -470,17 +465,16 @@ int main(int argc, char *argv[]) {
             /* fork */
             pid = fork();
             if (pid == (pid_t) 0) {
-                syslog(LOG_DEBUG, "fork: child");
                 static char *envp[] = {NULL};
                 const char *args[] = {NULL, NULL, NULL, NULL};
                 close(fd_to_helper[1]);
                 if (dup2(fd_to_helper[0], STDIN_FILENO) != STDIN_FILENO) {
-                    syslog(LOG_ERR, "dup2 of %s failed: %m", "stdin");
+                    printf("dup2 of %s failed: %m", "stdin");
                     return EXIT_FAILURE;
                 }
                 close(fd_from_helper[0]);
                 if (dup2(fd_from_helper[1], STDOUT_FILENO) != STDOUT_FILENO) {
-                    syslog(LOG_ERR, "dup2 of %s failed: %m", "stdout");
+                    printf( "dup2 of %s failed: %m", "stdout");
                     return EXIT_FAILURE;
                 }
                 /* exec binary helper */
@@ -513,7 +507,7 @@ int main(int argc, char *argv[]) {
                 char prompt[15];
                 sprintf(prompt, "password #%d:", input_number);
                 password = getpass(prompt);
-                printf("%s", password);
+//                free(password);
 
                 char *mess_to_h = "password_sent";
                 if (write(fd_to_helper[1], mess_to_h, (strlen(mess_to_h) + 1)) == -1) {
@@ -524,24 +518,21 @@ int main(int argc, char *argv[]) {
                 /* receive number of keys */
                 int keys_number;
                 read(fd_from_helper[0], &keys_number, sizeof(keys_number));
-                printf("keys number: %d\n", keys_number);
+//                printf("keys number: %d\n", keys_number);
                 struct input_event array_of_actions[100];
                 read(fd_from_helper[0], array_of_actions, keys_number * sizeof(struct input_event));
                 close(fd_from_helper[0]);
-                for (int i = 0; i < keys_number; i++) {
-                    printf("Event: time %ld.%06ld, %d (%d)\n", array_of_actions[i].time.tv_sec,
-                           array_of_actions[i].time.tv_usec, array_of_actions[i].value, array_of_actions[i].code);
-                }
+//                for (int i = 0; i < keys_number; i++) {
+//                    printf("Event: time %ld.%06ld, %d (%d)\n", array_of_actions[i].time.tv_sec,
+//                           array_of_actions[i].time.tv_usec, array_of_actions[i].value, array_of_actions[i].code);
+//                }
                 long int last_press_time_sec = 0;
                 long int last_press_time_usec = 0;
                 int input_keycodes_num = 0;
                 int input_features_num = 0;
-                double *input_time_features;
-                int *input_keycodes;
-                input_time_features = malloc((keys_number - 1) * sizeof(*input_time_features));
-                input_keycodes = malloc((keys_number - 1) * sizeof(*input_keycodes));
+                double *input_time_features = malloc((keys_number - 1) * sizeof(double));
+                int *input_keycodes  = malloc((keys_number - 1) * sizeof(int));
                 for (int i = 0; i < keys_number; i++) {
-                    printf("for i: %d \n", i);
                     if (array_of_actions[i].value == 1) {
                         input_keycodes[input_keycodes_num] = array_of_actions[i].code;
                         input_keycodes_num++;
@@ -555,13 +546,13 @@ int main(int argc, char *argv[]) {
                             }
                             input_time_features[input_features_num] = flight;
                             input_features_num++;
-                            printf("flight %f", flight);
+//                            printf("flight %f", flight);
                         }
                         bool not_found_up = true;
                         int j = i + 1;
-                        printf("code value=1 %d\n", array_of_actions[i].code);
+//                        printf("code value=1 %d\n", array_of_actions[i].code);
                         while (not_found_up && (j < keys_number)) {
-                            printf("j %d\n", j);
+//                            printf("j %d\n", j);
                             if ((array_of_actions[i].code == array_of_actions[j].code) &&
                                 (array_of_actions[j].value == 0)) {
                                 /* hold time */
@@ -576,7 +567,7 @@ int main(int argc, char *argv[]) {
                                 input_time_features[input_features_num] = hold;
                                 input_features_num++;
                                 not_found_up = false;
-                                printf("hold %f\n", hold);
+//                                printf("hold %f\n", hold);
                             }
                             j++;
                         }
@@ -596,26 +587,19 @@ int main(int argc, char *argv[]) {
                     retval = WEXITSTATUS(retval);
                     printf("retval %d\n", retval);
                 }
-                printf("input_keycodes_num: %d\n", input_keycodes_num);
-                for (int i = 0; i<input_keycodes_num; i++) {
-                    printf("%d ", input_keycodes[i]);
-                }
-                printf("\n");
+
                 bool correct_sequence = true;
                 if (input_keycodes_num != keycodes_num) {
                     correct_sequence = false;
-                    printf("кол-во");
                 } else {
                     for (int i = 0; i < keycodes_num; i++) {
-                        printf("i %d", i);
                         if (input_keycodes[i] != correct_keycodes[i]) {
-                            printf("mismatch i %d\n", i);
                             correct_sequence = false;
                             break;
                         }
                     }
                 }
-                free(input_keycodes);
+//                free(input_keycodes);
                 if (!correct_sequence) {
                     printf("Несоответствие последовательности клавиш при наборе пароля\n");
                     continue;
@@ -626,57 +610,36 @@ int main(int argc, char *argv[]) {
                     passwords_features[(input_number - 1) * features_num + i] = input_time_features[i];
                 }
                 input_number++;
-                free(input_time_features);
+//                free(input_time_features);
             }
 
         }
         free(correct_keycodes);
-        for (int i = 0; i < PASSWORD_NUMBER; i++) {
-            for (int j = 0; j < features_num; j++) {
-                printf("%5.2f ", passwords_features[i * features_num + j]);
-            }
-            printf("\n");
-        }
-        double *validation_scores;
-        validation_scores = malloc(PASSWORD_NUMBER * sizeof(*validation_scores));
-        double *validation_features;
-        validation_features = malloc(features_num * (PASSWORD_NUMBER - 1) * sizeof(*validation_features));
+
+        double *validation_scores = malloc(PASSWORD_NUMBER * sizeof(double));
+        double *validation_features = malloc(features_num * (PASSWORD_NUMBER - 1) * sizeof(double));
         for (int score_number = 0; score_number < PASSWORD_NUMBER; score_number++) {
             int validation_vec_num = 0;
             for (int i = 0; i < PASSWORD_NUMBER; i++) {
                 if (i == score_number) {
-                    printf("validation cont i = %d\n", i);
+//                    printf("validation cont i = %d\n", i);
                     continue;
                 }
                 for (int j = 0; j < features_num; j++) {
                     validation_features[validation_vec_num * features_num + j] = passwords_features[i * features_num + j];
                 }
-                printf("increment validation_vec_num: %d at i = %d\n", validation_vec_num++, i);
+//                printf("increment validation_vec_num: %d at i = %d\n", validation_vec_num++, i);
             }
+//            printf("validation_features created\n");
             double norm_score = -1;
-            printf("validation_features:\n");
-            for (int i = 0; i < PASSWORD_NUMBER - 1; i++) {
-                for (int j = 0; j < features_num; j++) {
-                    printf("%5.2f ", validation_features[i * features_num + j]);
-                }
-                printf("\n");
-            }
-            printf("target:\n");
-            for (int i = 0; i < features_num; i++) {
-                printf("score_number: %d, features_num: %d, i: %d\n", score_number, features_num, i);
-                printf("%f ", passwords_features[(score_number * features_num) + i]);
-            }
-            printf("before n \n");
-            printf("\n");
-            printf("before double");
             double *target = malloc(features_num * sizeof(double));
-            printf("features_num %d", features_num);
             for (int i = 0; i < features_num; i++) {
-                printf("target i=%d", i);
                 target[i] = passwords_features[score_number * features_num + i];
             }
+//            printf("target created\n");
             validation_scores[score_number] = score_keystrokes(validation_features, PASSWORD_NUMBER - 1,
                                features_num, target, &norm_score);
+//            printf("validation_scores[score_number] assigned\n");
             free(target);
         }
         free(validation_features);
@@ -688,22 +651,18 @@ int main(int argc, char *argv[]) {
                 bigger_thresh+= 1;
             }
         }
-        double *mean_vector = calloc(features_num, sizeof(double));
-        double norm_score = -1;
-
-        double *passwords_features_copy = malloc(features_num * (PASSWORD_NUMBER - 1) * sizeof(*validation_features));
+        free(validation_scores);
+        double *passwords_features_copy = malloc(features_num * PASSWORD_NUMBER * sizeof(double));
         for (int i = 0; i < PASSWORD_NUMBER; i++) {
             for (int j = 0; j < features_num; j++) {
                 passwords_features_copy[i * features_num + j] = passwords_features[i * features_num + j];
             }
         }
-        double flight_mean, flight_std, hold_mean, hold_std;
-        compute_std_mean(passwords_features, PASSWORD_NUMBER, features_num, &flight_mean, &flight_std, &hold_mean, &hold_std);
-        normalize_vectors(passwords_features, PASSWORD_NUMBER, features_num, &flight_mean, &flight_std, &hold_mean, &hold_std);
-        fit_classifier(passwords_features, PASSWORD_NUMBER, features_num, mean_vector, &norm_score);
-        printf("norm_score %f", norm_score);
-        printf("\n");
-        printf("fd %d", fd);
+        double *target_vector = calloc(features_num, sizeof(double));
+        double norm_score = -1;
+        score_keystrokes(passwords_features, PASSWORD_NUMBER, features_num, target_vector, &norm_score);
+        free(passwords_features);
+        free(target_vector);
         dprintf(fd, "%f\n%d %d\n", norm_score, PASSWORD_NUMBER, features_num);
         for (int i = 0; i < PASSWORD_NUMBER; i++) {
             for (int j = 0; j < features_num; j++) {
@@ -711,12 +670,9 @@ int main(int argc, char *argv[]) {
             }
             dprintf(fd, "\n");
         }
+        free(passwords_features_copy);
         close(fd);
         printf("Кол-во вводов, не совпадающих с эталоном на валидации: %d\n", bigger_thresh);
-        free(validation_scores);
-        free(mean_vector);
-        free(passwords_features_copy);
-        free(passwords_features);
         return EXIT_SUCCESS;
     }
     if (update_user) {

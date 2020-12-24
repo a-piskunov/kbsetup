@@ -462,10 +462,6 @@ int main(int argc, char *argv[])
     }
     struct pollfd stdin_poll = { .fd = STDIN_FILENO, .events = POLLIN | POLLRDBAND | POLLRDNORM | POLLPRI };
 
-//    int fd_write;
-    time_t rawtime;
-    time (&rawtime);
-
     int ev_offset = 0;
 
     bool entering_password = true;

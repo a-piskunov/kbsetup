@@ -102,7 +102,7 @@ int main() {
 
             char *mess_to_h = "password_sent";
             if (write(fd_to_helper[1], mess_to_h, (strlen(mess_to_h)+1)) == -1) {
-                syslog(LOG_DEBUG, "Cannot send finish to helper");
+//                syslog(LOG_DEBUG, "Cannot send finish to helper");
                 retval = PAM_AUTH_ERR;
             }
 //        printf("mess_to_h sent\n");
