@@ -90,7 +90,7 @@ void fit_classifier(double *fit_vectors, int fit_vectors_num,
         mean_vector[i] /= fit_vectors_num;
     }
     if (*norm_score < 0) {
-        double *fit_scores = calloc(features_number, sizeof(double));
+        double *fit_scores = calloc(fit_vectors_num, sizeof(double));
         double scores_mean = 0;
         for (int i=0; i<fit_vectors_num; i++) {
             fit_scores[i] = score_vector(features_number, mean_vector, fit_vectors + i * features_number, (double)1);

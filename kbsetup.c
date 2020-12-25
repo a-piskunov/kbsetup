@@ -518,14 +518,14 @@ int main(int argc, char *argv[]) {
                 /* receive number of keys */
                 int keys_number;
                 read(fd_from_helper[0], &keys_number, sizeof(keys_number));
-//                printf("keys number: %d\n", keys_number);
+                printf("keys number: %d\n", keys_number);
                 struct input_event array_of_actions[100];
                 read(fd_from_helper[0], array_of_actions, keys_number * sizeof(struct input_event));
                 close(fd_from_helper[0]);
-//                for (int i = 0; i < keys_number; i++) {
-//                    printf("Event: time %ld.%06ld, %d (%d)\n", array_of_actions[i].time.tv_sec,
-//                           array_of_actions[i].time.tv_usec, array_of_actions[i].value, array_of_actions[i].code);
-//                }
+                for (int i = 0; i < keys_number; i++) {
+                    printf("Event: time %ld.%06ld, %d (%d)\n", array_of_actions[i].time.tv_sec,
+                           array_of_actions[i].time.tv_usec, array_of_actions[i].value, array_of_actions[i].code);
+                }
                 long int last_press_time_sec = 0;
                 long int last_press_time_usec = 0;
                 int input_keycodes_num = 0;
@@ -546,13 +546,13 @@ int main(int argc, char *argv[]) {
                             }
                             input_time_features[input_features_num] = flight;
                             input_features_num++;
-//                            printf("flight %f", flight);
+                            printf("flight %f", flight);
                         }
                         bool not_found_up = true;
                         int j = i + 1;
-//                        printf("code value=1 %d\n", array_of_actions[i].code);
+                        printf("code value=1 %d\n", array_of_actions[i].code);
                         while (not_found_up && (j < keys_number)) {
-//                            printf("j %d\n", j);
+                            printf("j %d\n", j);
                             if ((array_of_actions[i].code == array_of_actions[j].code) &&
                                 (array_of_actions[j].value == 0)) {
                                 /* hold time */
@@ -567,7 +567,7 @@ int main(int argc, char *argv[]) {
                                 input_time_features[input_features_num] = hold;
                                 input_features_num++;
                                 not_found_up = false;
-//                                printf("hold %f\n", hold);
+                                printf("hold %f\n", hold);
                             }
                             j++;
                         }
@@ -622,24 +622,24 @@ int main(int argc, char *argv[]) {
             int validation_vec_num = 0;
             for (int i = 0; i < PASSWORD_NUMBER; i++) {
                 if (i == score_number) {
-//                    printf("validation cont i = %d\n", i);
+                    printf("validation cont i = %d\n", i);
                     continue;
                 }
                 for (int j = 0; j < features_num; j++) {
                     validation_features[validation_vec_num * features_num + j] = passwords_features[i * features_num + j];
                 }
-//                printf("increment validation_vec_num: %d at i = %d\n", validation_vec_num++, i);
+                printf("increment validation_vec_num: %d at i = %d\n", validation_vec_num++, i);
             }
-//            printf("validation_features created\n");
+            printf("validation_features created\n");
             double norm_score = -1;
             double *target = malloc(features_num * sizeof(double));
             for (int i = 0; i < features_num; i++) {
                 target[i] = passwords_features[score_number * features_num + i];
             }
-//            printf("target created\n");
+            printf("target created\n");
             validation_scores[score_number] = score_keystrokes(validation_features, PASSWORD_NUMBER - 1,
                                features_num, target, &norm_score);
-//            printf("validation_scores[score_number] assigned\n");
+            printf("validation_scores[score_number] assigned\n");
             free(target);
         }
         free(validation_features);
