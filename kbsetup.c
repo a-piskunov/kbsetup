@@ -4,7 +4,6 @@
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
 #include <syslog.h>
-#include <signal.h>
 #include <sys/wait.h>
 #include <errno.h>
 #include <linux/input.h>
@@ -17,7 +16,7 @@
 #define KEYSTROKE_HELPER "/home/alexey/Documents/kbsetup/keystroke_helper"
 #define CONFIG_KEYBOARD "/etc/keyboard-config"
 #define PASSWORD_NUMBER 20
- //Длинный 20
+
 /* conversation function for PAM module */
 const struct pam_conv conv = {
         misc_conv,
@@ -30,10 +29,6 @@ int main(int argc, char *argv[]) {
         printf("Для запуска kbsetup необходимы права суперпользователя\n");
         return EXIT_FAILURE;
     }
-    if(argc > 3) {
-        printf("Используется лишь одна из опций -c, -a, -u, -d, -l\n");
-        return EXIT_FAILURE;
-    }
     char *arg_username = NULL;
     int keyboard_setup = 0;
     char *keyboard_path = NULL;
@@ -44,57 +39,52 @@ int main(int argc, char *argv[]) {
     int list_users = 0;
     int rez;
     int argument_error = 0;
-//    opterr = 0;
-    while ( (rez = getopt(argc,argv,"k:ca:u:d:l")) != -1){
+    opterr = 0;
+    while ((rez = getopt(argc,argv,"k:ca:u:d:l")) != -1){
         switch (rez){
             /* keyboard setup */
             case 'k':
                 keyboard_setup = 1;
                 keyboard_path = optarg;
-                printf("found argument \"c\".\n");
                 break;
-                /* add user */
             /* check keyboard */
             case 'c':
                 check_keyboard = 1;
-                printf("found argument \"c\".\n");
                 break;
             /* add user */
             case 'a':
                 add_user = 1;
                 arg_username = optarg;
-                printf("found argument \"a = %s\".\n",optarg);
                 break;
-                /* update user */
+            /* update user */
             case 'u':
                 update_user = 1;
                 arg_username = optarg;
-                printf("found argument \"u = %s\".\n",optarg);
                 break;
-                /* delete user */
+            /* delete user */
             case 'd':
                 delete_user = 1;
                 arg_username = optarg;
-                printf("found argument \"d = %s\".\n",optarg);
                 break;
-                /* list users */
+            /* list users */
             case 'l':
                 list_users = 1;
-                printf("found argument \"l\"\n");
                 break;
-                /* other */
+            /* other */
             case '?':
                 argument_error = 1;
-                printf("Error found !\n");
                 break;
         };
     };
-    if (optind < argc) {
-        printf("Используется лишь одна из опций -c, -a, -u, -d, -l\n");
-        return EXIT_FAILURE;
-    }
-    if (argument_error||(keyboard_setup + check_keyboard + add_user + update_user + delete_user + list_users != 1)) {
-        printf("Используется лишь одна из опций -c, -a, -u, -d, -l\n");
+    if ((optind < argc) || argument_error ||
+        ((keyboard_setup + check_keyboard + add_user + update_user + delete_user + list_users) != 1)) {
+        printf("Используется лишь одна из опций:\n"
+               " -k (keyboard setup) [путь файла]       : установка пути файла устройства клавиатуры\n"
+               " -c (check keyboard)                    : проверка считывания клавиатурных событий\n"
+               " -a (add user)       [имя пользователя] : добавление эталона пользователя\n"
+               " -u (update user)    [имя пользователя] : обновление эталона пользователя\n"
+               " -d (delete user)    [имя пользователя] : удаление эталона пользователя\n"
+               " -l (list users)                        : кол-во эталонных вводов паролей у пользователей\n");
         return EXIT_FAILURE;
     }
     if (keyboard_setup) {
