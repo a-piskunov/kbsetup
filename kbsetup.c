@@ -33,9 +33,15 @@ int pam_auth(char *username, int interaction_num) {
         return 0;
     }
     retval = pam_authenticate(pamh, 0);
+    printf("retval %d\n", retval);
     if (retval != PAM_SUCCESS) {
-        printf("Некорректный пароль\n");
-        return 0;
+        if (retval == PAM_USER_UNKNOWN) {
+            printf("Неизвестный пользователь\n");
+            return -1;
+        } else {
+            printf("Некорректный пароль\n");
+            return 0;
+        }
     } else {
         return 1;
     }
@@ -53,11 +59,9 @@ int check_keyboard_func(char *username, int interaction_num) {
 }
 
 int password_retry(char *username, int interaction_num) {
-    char *password;
     char prompt[15];
     sprintf(prompt, "password #%d:", interaction_num);
-    password = getpass(prompt);
-    // set by zeros
+    getpass(prompt);
     return 1;
 }
 
@@ -319,7 +323,9 @@ int add_user_func(char *username) {
     struct features_collection returned_collection_pam;
     while (no_password) {
         keyboard_events_engine(keyboard_file, pam_auth, username, 1, &returned_collection_pam);
-        if (returned_collection_pam.success_interaction) {
+        if (returned_collection_pam.success_interaction < 0) {
+            exit(EXIT_FAILURE);
+        } else if (returned_collection_pam.success_interaction) {
             no_password = false;
         }
     }
