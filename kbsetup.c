@@ -42,11 +42,31 @@ int pam_auth(char *username, int interaction_num) {
     }
 }
 
-char *const evval[3] = {
-        "RELEASED",
-        "PRESSED ",
-        "REPEATED"
-};
+int check_keyboard_func(char *username, int interaction_num) {
+    int rc = 0;
+    char string [20];
+    printf("Введите несколько сиволов: ");
+    if(scanf("%19s", string) > 0) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+int password_retry(char *username, int interaction_num) {
+    char *password;
+    char prompt[15];
+    sprintf(prompt, "password #%d:", interaction_num);
+    password = getpass(prompt);
+    // set by zeros
+    return 1;
+}
+
+//char *const evval[3] = {
+//        "RELEASED",
+//        "PRESSED ",
+//        "REPEATED"
+//};
 
 struct features_collection {
     int success_interaction;
@@ -56,7 +76,8 @@ struct features_collection {
     int *pressed_keycodes;
 };
 
-struct features_collection keyboard_events_engine(char *keyboard_file, int (*interaction_func) (char *, int), char *username, int interaction_num) {
+void keyboard_events_engine(char *keyboard_file, int (*interaction_func) (char *, int),
+                            char *username, int interaction_num, struct features_collection *collected_features) {
     /* create pipe for sending password received signal to helper */
     int fd_to_helper[2];
     if (pipe(fd_to_helper) != 0) {
@@ -165,8 +186,11 @@ struct features_collection keyboard_events_engine(char *keyboard_file, int (*int
             _exit(EXIT_FAILURE);
         }
         close(fd);
-    } else {
+        printf("child return\n");
+        _exit(EXIT_SUCCESS);
+    } else if (pid > 0) {
         /* This is the parent process. */
+        printf("parent\n");
         close(fd_to_helper[0]); // close read end
         close(fd_from_helper[1]); // close write end
         int message_from_helper;
@@ -177,7 +201,7 @@ struct features_collection keyboard_events_engine(char *keyboard_file, int (*int
             printf("message_from_helper: %d\n", message_from_helper);
         }
         /* pam: correct or not */
-        int success_interaction = interaction_func(username, interaction_num);
+        collected_features->success_interaction = interaction_func(username, interaction_num);
         /* pam */
         int mess_to_h = 0;
         if (write(fd_to_helper[1], &mess_to_h, sizeof(mess_to_h)) == -1) {
@@ -204,8 +228,8 @@ struct features_collection keyboard_events_engine(char *keyboard_file, int (*int
         long int last_press_time_usec = 0;
         time_features = malloc(correct_keys_number * sizeof(*time_features));
         correct_keycodes = malloc(correct_keys_number * sizeof(*correct_keycodes));
-        features_num = 0;
         for (int i = 0; i < correct_keys_number; i++) {
+            printf("i: %d\n", i);
             if (array_of_actions[i].value == 1) {
                 correct_keycodes[keycodes_num] = array_of_actions[i].code;
                 keycodes_num++;
@@ -244,25 +268,36 @@ struct features_collection keyboard_events_engine(char *keyboard_file, int (*int
                     }
                     j++;
                 }
+                printf("last_press_time_sec: %ld last_press_time_usec: %ld\n", last_press_time_sec, last_press_time_usec);
                 last_press_time_sec = array_of_actions[i].time.tv_sec;
                 last_press_time_usec = array_of_actions[i].time.tv_usec;
             }
         }
-        free(time_features);
-        free(correct_keycodes);
+        printf("assigned: features_num %d, pressed_keycodes_num: %d\n", features_num, keycodes_num);
+        collected_features->time_features_num = features_num;
+        collected_features->time_features = time_features;
+        collected_features->pressed_keycodes_num = keycodes_num;
+        collected_features->pressed_keycodes = correct_keycodes;
         int rc;
+        int retval;
         while ((rc = waitpid(pid, &retval, 0)) < 0 && errno == EINTR);
         if (rc < 0) {
             printf("rc < 0\n");
-            return EXIT_FAILURE;
+            _exit(EXIT_FAILURE);
         } else if (!WIFEXITED(retval)) {
-            printf("helper abnormal exit\n");
-            return EXIT_FAILURE;
+            printf("helper abnormal exit: %d\n", retval);
+            _exit(EXIT_FAILURE);
         } else {
             retval = WEXITSTATUS(retval);
             printf("retval %d\n", retval);
         }
     }
+    return;
+}
+
+void free_collection(struct features_collection *collected_features) {
+    free(collected_features->time_features);
+    free(collected_features->pressed_keycodes);
 }
 
 int main(int argc, char *argv[]) {
@@ -337,7 +372,7 @@ int main(int argc, char *argv[]) {
         int written_bytes = write(fd, keyboard_path, strlen(keyboard_path));
         printf("written bytes %d\n", written_bytes);
         if (written_bytes == -1) {
-            printf("Ошибка записи пути в файл");
+            printf("Ошибка записи пути в файл\n");
         }
         close(fd);
         return EXIT_SUCCESS;
@@ -357,148 +392,29 @@ int main(int argc, char *argv[]) {
             exit(EXIT_FAILURE);
         }
         printf("read string: %s\n", keyboard_file);
-
-        int retval;
-
-        /* create pipe for sending password received signal to helper */
-        int fd_to_helper[2];
-        if (pipe(fd_to_helper) != 0) {
-            syslog(LOG_DEBUG, "could not make pipe");
-            return PAM_AUTH_ERR;
-        }
-
-        /* create pipe for receiving ready message from helper */
-        int fd_from_helper[2];
-        if (pipe(fd_from_helper) != 0) {
-            syslog(LOG_DEBUG, "could not make pipe");
-            return PAM_AUTH_ERR;
-        }
-
-        pid_t pid;
-
-        /* fork */
-        pid = fork();
-        if (pid == (pid_t) 0) {
-            syslog(LOG_DEBUG, "fork: child");
-            static char *envp[] = {NULL};
-            const char *args[] = {NULL, NULL, NULL, NULL};
-            /* This is the child process.
-              Close other end first. */
-            close(fd_to_helper[1]);
-
-            if (dup2(fd_to_helper[0], STDIN_FILENO) != STDIN_FILENO) {
-                syslog(LOG_ERR, "dup2 of %s failed: %m", "stdin");
-                _exit(PAM_AUTHINFO_UNAVAIL);
-            }
-
-            close(fd_from_helper[0]);
-
-            if (dup2(fd_from_helper[1], STDOUT_FILENO) != STDOUT_FILENO) {
-                syslog(LOG_ERR, "dup2 of %s failed: %m", "stdout");
-                _exit(PAM_AUTHINFO_UNAVAIL);
-            }
-            /* exec binary helper */
-            args[0] = KEYSTROKE_HELPER;
-            args[1] = keyboard_file;
-
-            syslog(LOG_DEBUG, "run binary");
-            execve(KEYSTROKE_HELPER, (char *const *) args, envp);
-
-            /* should not get here: exit with error */
-            syslog(LOG_DEBUG, "helper binary is not available");
-            _exit(PAM_AUTHINFO_UNAVAIL);
-        } else if (pid < (pid_t) 0) {
-            /* The fork failed. */
-            D(("fork failed"));
-            close(fd_to_helper[0]);
-            close(fd_to_helper[1]);
-            close(fd_from_helper[0]);
-            close(fd_from_helper[1]);
-            retval = PAM_AUTH_ERR;
-        } else {
-            /* This is the parent process.
-               Close other end first. */
-            syslog(LOG_DEBUG, "Fork: parent");
-
-            close(fd_to_helper[0]); // close read end
-            close(fd_from_helper[1]); // close write end
-
-
-            char message_from_helper[10];
-            if (read(fd_from_helper[0], message_from_helper, sizeof(message_from_helper)) == -1) {
-                syslog(LOG_DEBUG, "Cannot receive message from helper");
-                retval = PAM_AUTH_ERR;
-            } else {
-                syslog(LOG_DEBUG, "message from helper: %s", message_from_helper);
-                printf("message_from_helper: %s\n", message_from_helper);
-            }
-//        close(fd_from_helper[0]);
-//            printf("Your keystroke dynamics will be checked while password input!\n");
-
-            int rc = 0;
-            char string [20];
-            printf("Введите несколько сиволов: ");
-            scanf("%19s", string);
-//            char *password;
-//            char *prompt = "password";
-//            password = getpass(prompt);
-
-            char *mess_to_h = "password_sent";
-            if (write(fd_to_helper[1], mess_to_h, (strlen(mess_to_h)+1)) == -1) {
-                syslog(LOG_DEBUG, "Cannot send finish to helper");
-                retval = PAM_AUTH_ERR;
-            }
-//        printf("mess_to_h sent\n");
-            printf("finish written\n");
-            /* receive number of keys */
-            int keys_number;
-            read(fd_from_helper[0], &keys_number, sizeof(keys_number));
-//        printf("keys number: %d\n", keys_number);
-            struct input_event array_of_actions[100];
-            read(fd_from_helper[0], array_of_actions, keys_number * sizeof(struct input_event));
-
-            close(fd_to_helper[1]);
-
-            for (int i=0; i<keys_number; i++) {
-                printf("Event: time %ld.%06ld, %d (%s)\n", array_of_actions[i].time.tv_sec,
-                       array_of_actions[i].time.tv_usec, array_of_actions[i].value, keys[array_of_actions[i].code]);
-            }
-
-            while ((rc = waitpid(pid, &retval, 0)) < 0 && errno == EINTR);
-            if (rc < 0) {
-                syslog(LOG_DEBUG, "unix_chkpwd waitpid returned ");
-                retval = PAM_AUTH_ERR;
-            } else if (!WIFEXITED(retval)) {
-                syslog(LOG_DEBUG, "unix_chkpwd abnormal exit:");
-                retval = PAM_AUTH_ERR;
-            } else {
-                retval = WEXITSTATUS(retval);
-            }
-            printf("retval %d\n", retval);
-//            return retval;
-        }
-
+        struct features_collection returned_collection;
+        keyboard_events_engine(keyboard_file, check_keyboard_func, NULL, 1, &returned_collection);
         free(keyboard_file);
+        for (int i = 0; i < returned_collection.pressed_keycodes_num; i++) {
+            printf("%s ", keys[returned_collection.pressed_keycodes[i]]);
+        }
+        printf("\n");
+        free_collection(&returned_collection);
         exit(EXIT_SUCCESS);
     }
     if (add_user) {
-        if (mkdir("/etc/keystroke-pam",0777)&& errno != EEXIST) {
-//        perror(argv[0]);
+        if (mkdir("/etc/keystroke-pam", 0777) && errno != EEXIST) {
             printf("Ошибка создания директории keystroke-pam");
             exit(EXIT_FAILURE);
         }
         char user_file_path[100] = "/etc/keystroke-pam/";
         strcat(user_file_path, arg_username);
         printf("user_file_path %s\n", user_file_path);
-        int fd = open(user_file_path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
-        if (fd < 0) {
-            if (errno == EEXIST) {
-                printf("Эталон уже существует, для обновления воспользуйтесь опцией -u\n");
-            } else {
-                printf("При создании файла с параметрами эталона возникла ошибка\n");
-            }
+
+        if (access(user_file_path, F_OK) == 0) {
+            printf("Эталон уже существует, для обновления воспользуйтесь опцией -u\n");
             exit(EXIT_FAILURE);
-        };
+        }
         FILE *fp;
         char *keyboard_file;
         size_t len = 0;
@@ -514,342 +430,59 @@ int main(int argc, char *argv[]) {
         fclose(fp);
         printf("read string: %s\n", keyboard_file);
 
-        pam_handle_t* pamh = NULL;
-        int retval;
-        retval = pam_start("kbsetup", arg_username, &conv, &pamh);
-        printf("pam_start\n");
-        if (retval != PAM_SUCCESS) {
-            printf("pam_start error");
-            return EXIT_FAILURE;
-        }
         bool no_password = true;
-        double *time_features;
-        int *correct_keycodes;
-        int features_num = 0;
-        int keycodes_num = 0;
-        int correct_keys_number;
+        struct features_collection returned_collection_pam;
         while (no_password) {
-            /* create pipe for sending password received signal to helper */
-            int fd_to_helper[2];
-            if (pipe(fd_to_helper) != 0) {
-                syslog(LOG_DEBUG, "could not make pipe");
-                return EXIT_FAILURE;
-            }
-            /* create pipe for receiving ready message from helper */
-            int fd_from_helper[2];
-            if (pipe(fd_from_helper) != 0) {
-                syslog(LOG_DEBUG, "could not make pipe");
-                return EXIT_FAILURE;
-            }
-            pid_t pid;
-            /* fork */
-            pid = fork();
-            if (pid == (pid_t) 0) {
-                syslog(LOG_DEBUG, "fork: child");
-                static char *envp[] = {NULL};
-                const char *args[] = {NULL, NULL, NULL, NULL};
-                close(fd_to_helper[1]);
-                if (dup2(fd_to_helper[0], STDIN_FILENO) != STDIN_FILENO) {
-                    syslog(LOG_ERR, "dup2 of %s failed: %m", "stdin");
-                    return EXIT_FAILURE;
-                }
-                close(fd_from_helper[0]);
-                if (dup2(fd_from_helper[1], STDOUT_FILENO) != STDOUT_FILENO) {
-                    syslog(LOG_ERR, "dup2 of %s failed: %m", "stdout");
-                    return EXIT_FAILURE;
-                }
-                /* exec binary helper */
-                args[0] = KEYSTROKE_HELPER;
-                args[1] = keyboard_file;
-                execve(KEYSTROKE_HELPER, (char *const *) args, envp);
-                /* should not get here: exit with error */
-                printf("helper binary is not available");
-                return EXIT_FAILURE;
-            } else if (pid < (pid_t) 0) {
-                /* The fork failed. */
-                printf("fork failed\n");
-                close(fd_to_helper[0]);
-                close(fd_to_helper[1]);
-                close(fd_from_helper[0]);
-                close(fd_from_helper[1]);
-                return EXIT_FAILURE;
-            } else {
-                /* This is the parent process. */
-                close(fd_to_helper[0]); // close read end
-                close(fd_from_helper[1]); // close write end
-                char message_from_helper[10];
-                if (read(fd_from_helper[0], message_from_helper, sizeof(message_from_helper)) == -1) {
-                    printf("Cannot receive message from helper");
-                    return EXIT_FAILURE;
-                } else {
-                    printf("message_from_helper: %s\n", message_from_helper);
-                }
-                retval = pam_authenticate(pamh, 0);
-                if (retval != PAM_SUCCESS) {
-//                    kill(pid, SIGKILL);
-                    printf("Некорректный пароль\n");
-//                    continue;
-                } else {
-                    no_password = false;
-                }
-                char *mess_to_h = "password_sent";
-                if (write(fd_to_helper[1], mess_to_h, (strlen(mess_to_h) + 1)) == -1) {
-                    printf("Cannot send finish to helper");
-                    return EXIT_FAILURE;
-                }
-                close(fd_to_helper[1]);
-                /* receive number of keys */
-                read(fd_from_helper[0], &correct_keys_number, sizeof(correct_keys_number));
-                printf("keys number: %d\n", correct_keys_number);
-                struct input_event array_of_actions[100];
-                read(fd_from_helper[0], array_of_actions, correct_keys_number * sizeof(struct input_event));
-                close(fd_from_helper[0]);
-                for (int i = 0; i < correct_keys_number; i++) {
-                    printf("Event: time %ld.%06ld, %d (%d)\n", array_of_actions[i].time.tv_sec,
-                           array_of_actions[i].time.tv_usec, array_of_actions[i].value, array_of_actions[i].code);
-                }
-                long int last_press_time_sec = 0;
-                long int last_press_time_usec = 0;
-                time_features = malloc((correct_keys_number - 1) * sizeof(*time_features));
-                correct_keycodes = malloc((correct_keys_number - 1) * sizeof(*correct_keycodes));
-                features_num = 0;
-                for (int i = 0; i < correct_keys_number; i++) {
-                    printf("for i: %d \n", i);
-                    if (array_of_actions[i].value == 1) {
-                        correct_keycodes[keycodes_num] = array_of_actions[i].code;
-                        keycodes_num++;
-                        if (last_press_time_sec > 0) {
-                            /* flight */
-                            double flight = (array_of_actions[i].time.tv_sec - last_press_time_sec) * 1000 +
-                                            (double) (array_of_actions[i].time.tv_usec - last_press_time_usec) / 1000;
-                            if ((correct_keys_number - 1) < features_num) {
-                                printf("При выделении параметров произошла ошибка");
-                                return EXIT_FAILURE;
-                            }
-                            time_features[features_num] = flight;
-                            features_num++;
-                            printf("flight %f", flight);
-                        }
-                        bool not_found_up = true;
-                        int j = i + 1;
-                        printf("code value=1 %d\n", array_of_actions[i].code);
-                        while (not_found_up && (j < correct_keys_number)) {
-                            printf("j %d\n", j);
-                            if ((array_of_actions[i].code == array_of_actions[j].code) &&
-                                (array_of_actions[j].value == 0)) {
-                                /* hold time */
-                                double hold =
-                                        (array_of_actions[j].time.tv_sec - array_of_actions[i].time.tv_sec) * 1000 +
-                                        (double) (array_of_actions[j].time.tv_usec - array_of_actions[i].time.tv_usec) /
-                                        1000;
-                                if ((correct_keys_number - 1) < features_num) {
-                                    printf("При выделении параметров произошла ошибка");
-                                    return EXIT_FAILURE;
-                                }
-                                time_features[features_num] = hold;
-                                features_num++;
-                                not_found_up = false;
-                                printf("hold %f\n", hold);
-                            }
-                            j++;
-                        }
-                        last_press_time_sec = array_of_actions[i].time.tv_sec;
-                        last_press_time_usec = array_of_actions[i].time.tv_usec;
-                    }
-                }
-                if (no_password != false) {
-                    free(time_features);
-                    free(correct_keycodes);
-                }
-                int rc;
-                while ((rc = waitpid(pid, &retval, 0)) < 0 && errno == EINTR);
-                if (rc < 0) {
-                    printf("rc < 0\n");
-                    return EXIT_FAILURE;
-                } else if (!WIFEXITED(retval)) {
-                    printf("helper abnormal exit\n");
-                    return EXIT_FAILURE;
-                } else {
-                    retval = WEXITSTATUS(retval);
-                    printf("retval %d\n", retval);
-                }
+            keyboard_events_engine("/dev/input/event3", pam_auth, arg_username, 1, &returned_collection_pam);
+            if (returned_collection_pam.success_interaction) {
+                no_password = false;
             }
         }
-        double *passwords_features;
-        passwords_features = malloc(features_num * PASSWORD_NUMBER * sizeof(*passwords_features));
-        for (int i = 0; i < features_num; i++) {
-            passwords_features[i] = time_features[i];
+        double *passwords_features = malloc(PASSWORD_NUMBER *
+                                            returned_collection_pam.time_features_num * sizeof(double));
+        for (int i = 0; i < returned_collection_pam.time_features_num; i++) {
+            passwords_features[i] = returned_collection_pam.time_features[i];
         }
-        free(time_features);
-
         int input_number = 2;
+        int features_num = returned_collection_pam.time_features_num;
+        struct features_collection returned_collection_retry;
         while (input_number <= PASSWORD_NUMBER) {
-            int fd_to_helper[2];
-            if (pipe(fd_to_helper) != 0) {
-                syslog(LOG_DEBUG, "could not make pipe");
-                return EXIT_FAILURE;
-            }
-            /* create pipe for receiving ready message from helper */
-            int fd_from_helper[2];
-            if (pipe(fd_from_helper) != 0) {
-                syslog(LOG_DEBUG, "could not make pipe");
-                return EXIT_FAILURE;
-            }
-            pid_t pid;
-            /* fork */
-            pid = fork();
-            if (pid == (pid_t) 0) {
-                static char *envp[] = {NULL};
-                const char *args[] = {NULL, NULL, NULL, NULL};
-                close(fd_to_helper[1]);
-                if (dup2(fd_to_helper[0], STDIN_FILENO) != STDIN_FILENO) {
-                    printf("dup2 of %s failed: %m", "stdin");
-                    return EXIT_FAILURE;
-                }
-                close(fd_from_helper[0]);
-                if (dup2(fd_from_helper[1], STDOUT_FILENO) != STDOUT_FILENO) {
-                    printf( "dup2 of %s failed: %m", "stdout");
-                    return EXIT_FAILURE;
-                }
-                /* exec binary helper */
-                args[0] = KEYSTROKE_HELPER;
-                args[1] = keyboard_file;
-                execve(KEYSTROKE_HELPER, (char *const *) args, envp);
-                /* should not get here: exit with error */
-                printf("helper binary is not available");
-                return EXIT_FAILURE;
-            } else if (pid < (pid_t) 0) {
-                /* The fork failed. */
-                printf("fork failed\n");
-                close(fd_to_helper[0]);
-                close(fd_to_helper[1]);
-                close(fd_from_helper[0]);
-                close(fd_from_helper[1]);
-                return EXIT_FAILURE;
+            keyboard_events_engine("/dev/input/event3", password_retry,
+                                   arg_username, input_number, &returned_collection_retry);
+            bool correct_sequence = true;
+            if (returned_collection_retry.pressed_keycodes_num != returned_collection_pam.pressed_keycodes_num) {
+                correct_sequence = false;
             } else {
-                /* This is the parent process. */
-                close(fd_to_helper[0]); // close read end
-                close(fd_from_helper[1]); // close write end
-                char message_from_helper[10];
-                if (read(fd_from_helper[0], message_from_helper, sizeof(message_from_helper)) == -1) {
-                    printf("Cannot receive message from helper");
-                    return EXIT_FAILURE;
-                } else {
-                    printf("message_from_helper: %s\n", message_from_helper);
-                }
-                char *password;
-                char prompt[15];
-                sprintf(prompt, "password #%d:", input_number);
-                password = getpass(prompt);
-//                free(password);
-
-                char *mess_to_h = "password_sent";
-                if (write(fd_to_helper[1], mess_to_h, (strlen(mess_to_h) + 1)) == -1) {
-                    printf("Cannot send finish to helper");
-                    return EXIT_FAILURE;
-                }
-                close(fd_to_helper[1]);
-                /* receive number of keys */
-                int keys_number;
-                read(fd_from_helper[0], &keys_number, sizeof(keys_number));
-                printf("keys number: %d\n", keys_number);
-                struct input_event array_of_actions[100];
-                read(fd_from_helper[0], array_of_actions, keys_number * sizeof(struct input_event));
-                close(fd_from_helper[0]);
-                for (int i = 0; i < keys_number; i++) {
-                    printf("Event: time %ld.%06ld, %d (%d)\n", array_of_actions[i].time.tv_sec,
-                           array_of_actions[i].time.tv_usec, array_of_actions[i].value, array_of_actions[i].code);
-                }
-                long int last_press_time_sec = 0;
-                long int last_press_time_usec = 0;
-                int input_keycodes_num = 0;
-                int input_features_num = 0;
-                double *input_time_features = malloc((keys_number - 1) * sizeof(double));
-                int *input_keycodes  = malloc((keys_number - 1) * sizeof(int));
-                for (int i = 0; i < keys_number; i++) {
-                    if (array_of_actions[i].value == 1) {
-                        input_keycodes[input_keycodes_num] = array_of_actions[i].code;
-                        input_keycodes_num++;
-                        if (last_press_time_sec > 0) {
-                            /* flight */
-                            double flight = (array_of_actions[i].time.tv_sec - last_press_time_sec) * 1000 +
-                                            (double) (array_of_actions[i].time.tv_usec - last_press_time_usec) / 1000;
-                            if ((keys_number - 1) < input_features_num) {
-                                printf("При выделении параметров произошла ошибка");
-                                return EXIT_FAILURE;
-                            }
-                            input_time_features[input_features_num] = flight;
-                            input_features_num++;
-                            printf("flight %f", flight);
-                        }
-                        bool not_found_up = true;
-                        int j = i + 1;
-                        printf("code value=1 %d\n", array_of_actions[i].code);
-                        while (not_found_up && (j < keys_number)) {
-                            printf("j %d\n", j);
-                            if ((array_of_actions[i].code == array_of_actions[j].code) &&
-                                (array_of_actions[j].value == 0)) {
-                                /* hold time */
-                                double hold =
-                                        (array_of_actions[j].time.tv_sec - array_of_actions[i].time.tv_sec) * 1000 +
-                                        (double) (array_of_actions[j].time.tv_usec - array_of_actions[i].time.tv_usec) /
-                                        1000;
-                                if ((keys_number - 1) < input_features_num) {
-                                    printf("При выделении параметров произошла ошибка\n");
-                                    return EXIT_FAILURE;
-                                }
-                                input_time_features[input_features_num] = hold;
-                                input_features_num++;
-                                not_found_up = false;
-                                printf("hold %f\n", hold);
-                            }
-                            j++;
-                        }
-                        last_press_time_sec = array_of_actions[i].time.tv_sec;
-                        last_press_time_usec = array_of_actions[i].time.tv_usec;
+                for (int i = 0; i < returned_collection_pam.pressed_keycodes_num; i++) {
+                    if (returned_collection_pam.pressed_keycodes[i] !=
+                        returned_collection_retry.pressed_keycodes[i]) {
+                        correct_sequence = false;
+                        break;
                     }
                 }
-                int rc;
-                while ((rc = waitpid(pid, &retval, 0)) < 0 && errno == EINTR);
-                if (rc < 0) {
-                    printf("rc < 0\n");
-                    return EXIT_FAILURE;
-                } else if (!WIFEXITED(retval)) {
-                    printf("helper abnormal exit\n");
-                    return EXIT_FAILURE;
-                } else {
-                    retval = WEXITSTATUS(retval);
-                    printf("retval %d\n", retval);
-                }
-
-                bool correct_sequence = true;
-                if (input_keycodes_num != keycodes_num) {
-                    correct_sequence = false;
-                } else {
-                    for (int i = 0; i < keycodes_num; i++) {
-                        if (input_keycodes[i] != correct_keycodes[i]) {
-                            correct_sequence = false;
-                            break;
-                        }
-                    }
-                }
-//                free(input_keycodes);
-                if (!correct_sequence) {
-                    printf("Несоответствие последовательности клавиш при наборе пароля\n");
-                    continue;
-                } else {
-                    printf("ok\n");
-                }
-                for (int i = 0; i < input_features_num; i++) {
-                    passwords_features[(input_number - 1) * features_num + i] = input_time_features[i];
+            }
+            if (!correct_sequence) {
+                printf("Несоответствие последовательности клавиш при наборе пароля\n");
+                continue;
+            } else {
+                for (int i = 0; i < features_num; i++) {
+                    passwords_features[(input_number - 1) * features_num + i] =
+                            returned_collection_retry.time_features[i];
                 }
                 input_number++;
-//                free(input_time_features);
             }
-
+            free_collection(&returned_collection_retry);
         }
-        free(correct_keycodes);
-
+        free_collection(&returned_collection_pam);
+        int fd = open(user_file_path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+        if (fd < 0) {
+            if (errno == EEXIST) {
+                printf("Эталон уже существует, для обновления воспользуйтесь опцией -u\n");
+            } else {
+                printf("При создании файла с параметрами эталона возникла ошибка\n");
+            }
+            exit(EXIT_FAILURE);
+        };
         double *validation_scores = malloc(PASSWORD_NUMBER * sizeof(double));
         double *validation_features = malloc(features_num * (PASSWORD_NUMBER - 1) * sizeof(double));
         for (int score_number = 0; score_number < PASSWORD_NUMBER; score_number++) {

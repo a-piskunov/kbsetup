@@ -487,7 +487,7 @@ int main(int argc, char *argv[])
         int rv;
         rv = select(fd + 1, &set, NULL, NULL, &timeout);
         if(rv == -1)
-            syslog(LOG_WARNING, "helper: select error"); /* an error accured */
+            syslog(LOG_WARNING, "helper: select error"); /* error accured */
         else if(rv == 0)
             syslog(LOG_WARNING, "helper: select timeout");
         else { /* there was data to read */
