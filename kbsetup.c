@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
-#include <syslog.h>
 #include <sys/wait.h>
 #include <errno.h>
 #include <linux/input.h>
@@ -11,7 +10,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <poll.h>
-
+#include <dirent.h>
 #include "manhattan.h"
 #include "key_input.h"
 
@@ -300,6 +299,131 @@ void free_collection(struct features_collection *collected_features) {
     free(collected_features->pressed_keycodes);
 }
 
+int add_user_func(char *username) {
+    FILE *fp;
+    char *keyboard_file;
+    size_t len = 0;
+    fp = fopen(CONFIG_KEYBOARD, "r");
+    if (fp == NULL) {
+        printf("Невозможно открыть файл конфигурации");
+        exit(EXIT_FAILURE);
+    };
+    if ((getline(&keyboard_file, &len, fp)) == -1) {
+        printf("Невозможно прочитать файл конфигурации");
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
+    char user_file_path[100] = "/etc/keystroke-pam/";
+    strcat(user_file_path, username);
+    bool no_password = true;
+    struct features_collection returned_collection_pam;
+    while (no_password) {
+        keyboard_events_engine(keyboard_file, pam_auth, username, 1, &returned_collection_pam);
+        if (returned_collection_pam.success_interaction) {
+            no_password = false;
+        }
+    }
+    double *passwords_features = malloc(PASSWORD_NUMBER *
+                                        returned_collection_pam.time_features_num * sizeof(double));
+    for (int i = 0; i < returned_collection_pam.time_features_num; i++) {
+        passwords_features[i] = returned_collection_pam.time_features[i];
+    }
+    int input_number = 2;
+    int features_num = returned_collection_pam.time_features_num;
+    struct features_collection returned_collection_retry;
+    while (input_number <= PASSWORD_NUMBER) {
+        keyboard_events_engine(keyboard_file, password_retry,
+                               username, input_number, &returned_collection_retry);
+        bool correct_sequence = true;
+        if (returned_collection_retry.pressed_keycodes_num != returned_collection_pam.pressed_keycodes_num) {
+            correct_sequence = false;
+        } else {
+            for (int i = 0; i < returned_collection_pam.pressed_keycodes_num; i++) {
+                if (returned_collection_pam.pressed_keycodes[i] !=
+                    returned_collection_retry.pressed_keycodes[i]) {
+                    correct_sequence = false;
+                    break;
+                }
+            }
+        }
+        if (!correct_sequence) {
+            printf("Несоответствие последовательности клавиш при наборе пароля\n");
+            continue;
+        } else {
+            for (int i = 0; i < features_num; i++) {
+                passwords_features[(input_number - 1) * features_num + i] =
+                        returned_collection_retry.time_features[i];
+            }
+            input_number++;
+        }
+        free_collection(&returned_collection_retry);
+    }
+    free_collection(&returned_collection_pam);
+    int fd = open(user_file_path, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        printf("При создании файла с параметрами эталона возникла ошибка\n");
+        exit(EXIT_FAILURE);
+    };
+    double *validation_scores = malloc(PASSWORD_NUMBER * sizeof(double));
+    double *validation_features = malloc(features_num * (PASSWORD_NUMBER - 1) * sizeof(double));
+    for (int score_number = 0; score_number < PASSWORD_NUMBER; score_number++) {
+        int validation_vec_num = 0;
+        for (int i = 0; i < PASSWORD_NUMBER; i++) {
+            if (i == score_number) {
+                printf("validation cont i = %d\n", i);
+                continue;
+            }
+            for (int j = 0; j < features_num; j++) {
+                validation_features[validation_vec_num * features_num + j] = passwords_features[i * features_num + j];
+            }
+            printf("increment validation_vec_num: %d at i = %d\n", validation_vec_num++, i);
+        }
+        printf("validation_features created\n");
+        double norm_score = -1;
+        double *target = malloc(features_num * sizeof(double));
+        for (int i = 0; i < features_num; i++) {
+            target[i] = passwords_features[score_number * features_num + i];
+        }
+        printf("target created\n");
+        validation_scores[score_number] = score_keystrokes(validation_features, PASSWORD_NUMBER - 1,
+                                                           features_num, target, &norm_score);
+        printf("validation_scores[score_number] assigned\n");
+        free(target);
+    }
+    free(validation_features);
+    printf("validation_scores: ");
+    int bigger_thresh = 0;
+    for (int i = 0; i < PASSWORD_NUMBER; i++) {
+        printf("%5.2f ", validation_scores[i]);
+        if (validation_scores[i] < -1.2) {
+            bigger_thresh+= 1;
+        }
+    }
+    free(validation_scores);
+    double *passwords_features_copy = malloc(features_num * PASSWORD_NUMBER * sizeof(double));
+    for (int i = 0; i < PASSWORD_NUMBER; i++) {
+        for (int j = 0; j < features_num; j++) {
+            passwords_features_copy[i * features_num + j] = passwords_features[i * features_num + j];
+        }
+    }
+    double *target_vector = calloc(features_num, sizeof(double));
+    double norm_score = -1;
+    score_keystrokes(passwords_features, PASSWORD_NUMBER, features_num, target_vector, &norm_score);
+    free(passwords_features);
+    free(target_vector);
+    dprintf(fd, "%f\n%d %d\n", norm_score, PASSWORD_NUMBER, features_num);
+    for (int i = 0; i < PASSWORD_NUMBER; i++) {
+        for (int j = 0; j < features_num; j++) {
+            dprintf(fd, "%.3f ", passwords_features_copy[i * features_num + j]);
+        }
+        dprintf(fd, "\n");
+    }
+    free(passwords_features_copy);
+    close(fd);
+    printf("Кол-во вводов, не совпадающих с эталоном на валидации: %d\n", bigger_thresh);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
     /* check if user is root */
     if (getuid() != 0) {
@@ -409,141 +533,21 @@ int main(int argc, char *argv[]) {
         }
         char user_file_path[100] = "/etc/keystroke-pam/";
         strcat(user_file_path, arg_username);
-        printf("user_file_path %s\n", user_file_path);
 
         if (access(user_file_path, F_OK) == 0) {
             printf("Эталон уже существует, для обновления воспользуйтесь опцией -u\n");
             exit(EXIT_FAILURE);
         }
-        FILE *fp;
-        char *keyboard_file;
-        size_t len = 0;
-        fp = fopen(CONFIG_KEYBOARD, "r");
-        if (fp == NULL) {
-            printf("Невозможно открыть файл конфигурации");
-            exit(EXIT_FAILURE);
-        };
-        if ((getline(&keyboard_file, &len, fp)) == -1) {
-            printf("Невозможно прочитать файл конфигурации");
-            exit(EXIT_FAILURE);
-        }
-        fclose(fp);
-        printf("read string: %s\n", keyboard_file);
-
-        bool no_password = true;
-        struct features_collection returned_collection_pam;
-        while (no_password) {
-            keyboard_events_engine("/dev/input/event3", pam_auth, arg_username, 1, &returned_collection_pam);
-            if (returned_collection_pam.success_interaction) {
-                no_password = false;
-            }
-        }
-        double *passwords_features = malloc(PASSWORD_NUMBER *
-                                            returned_collection_pam.time_features_num * sizeof(double));
-        for (int i = 0; i < returned_collection_pam.time_features_num; i++) {
-            passwords_features[i] = returned_collection_pam.time_features[i];
-        }
-        int input_number = 2;
-        int features_num = returned_collection_pam.time_features_num;
-        struct features_collection returned_collection_retry;
-        while (input_number <= PASSWORD_NUMBER) {
-            keyboard_events_engine("/dev/input/event3", password_retry,
-                                   arg_username, input_number, &returned_collection_retry);
-            bool correct_sequence = true;
-            if (returned_collection_retry.pressed_keycodes_num != returned_collection_pam.pressed_keycodes_num) {
-                correct_sequence = false;
-            } else {
-                for (int i = 0; i < returned_collection_pam.pressed_keycodes_num; i++) {
-                    if (returned_collection_pam.pressed_keycodes[i] !=
-                        returned_collection_retry.pressed_keycodes[i]) {
-                        correct_sequence = false;
-                        break;
-                    }
-                }
-            }
-            if (!correct_sequence) {
-                printf("Несоответствие последовательности клавиш при наборе пароля\n");
-                continue;
-            } else {
-                for (int i = 0; i < features_num; i++) {
-                    passwords_features[(input_number - 1) * features_num + i] =
-                            returned_collection_retry.time_features[i];
-                }
-                input_number++;
-            }
-            free_collection(&returned_collection_retry);
-        }
-        free_collection(&returned_collection_pam);
-        int fd = open(user_file_path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
-        if (fd < 0) {
-            if (errno == EEXIST) {
-                printf("Эталон уже существует, для обновления воспользуйтесь опцией -u\n");
-            } else {
-                printf("При создании файла с параметрами эталона возникла ошибка\n");
-            }
-            exit(EXIT_FAILURE);
-        };
-        double *validation_scores = malloc(PASSWORD_NUMBER * sizeof(double));
-        double *validation_features = malloc(features_num * (PASSWORD_NUMBER - 1) * sizeof(double));
-        for (int score_number = 0; score_number < PASSWORD_NUMBER; score_number++) {
-            int validation_vec_num = 0;
-            for (int i = 0; i < PASSWORD_NUMBER; i++) {
-                if (i == score_number) {
-                    printf("validation cont i = %d\n", i);
-                    continue;
-                }
-                for (int j = 0; j < features_num; j++) {
-                    validation_features[validation_vec_num * features_num + j] = passwords_features[i * features_num + j];
-                }
-                printf("increment validation_vec_num: %d at i = %d\n", validation_vec_num++, i);
-            }
-            printf("validation_features created\n");
-            double norm_score = -1;
-            double *target = malloc(features_num * sizeof(double));
-            for (int i = 0; i < features_num; i++) {
-                target[i] = passwords_features[score_number * features_num + i];
-            }
-            printf("target created\n");
-            validation_scores[score_number] = score_keystrokes(validation_features, PASSWORD_NUMBER - 1,
-                               features_num, target, &norm_score);
-            printf("validation_scores[score_number] assigned\n");
-            free(target);
-        }
-        free(validation_features);
-        printf("validation_scores: ");
-        int bigger_thresh = 0;
-        for (int i = 0; i < PASSWORD_NUMBER; i++) {
-            printf("%5.2f ", validation_scores[i]);
-            if (validation_scores[i] < -1.2) {
-                bigger_thresh+= 1;
-            }
-        }
-        free(validation_scores);
-        double *passwords_features_copy = malloc(features_num * PASSWORD_NUMBER * sizeof(double));
-        for (int i = 0; i < PASSWORD_NUMBER; i++) {
-            for (int j = 0; j < features_num; j++) {
-                passwords_features_copy[i * features_num + j] = passwords_features[i * features_num + j];
-            }
-        }
-        double *target_vector = calloc(features_num, sizeof(double));
-        double norm_score = -1;
-        score_keystrokes(passwords_features, PASSWORD_NUMBER, features_num, target_vector, &norm_score);
-        free(passwords_features);
-        free(target_vector);
-        dprintf(fd, "%f\n%d %d\n", norm_score, PASSWORD_NUMBER, features_num);
-        for (int i = 0; i < PASSWORD_NUMBER; i++) {
-            for (int j = 0; j < features_num; j++) {
-                dprintf(fd, "%.3f ", passwords_features_copy[i * features_num + j]);
-            }
-            dprintf(fd, "\n");
-        }
-        free(passwords_features_copy);
-        close(fd);
-        printf("Кол-во вводов, не совпадающих с эталоном на валидации: %d\n", bigger_thresh);
-        return EXIT_SUCCESS;
+        add_user_func(arg_username);
     }
     if (update_user) {
-
+        char user_file_path[100] = "/etc/keystroke-pam/";
+        strcat(user_file_path, arg_username);
+        if (access(user_file_path, F_OK) != 0) {
+            printf("Эталона не существует, для создания воспользуйтесь опцией -a\n");
+            exit(EXIT_FAILURE);
+        }
+        add_user_func(arg_username);
     }
     if (delete_user) {
         char user_file_path[100] = "/etc/keystroke-pam/";
@@ -561,7 +565,28 @@ int main(int argc, char *argv[]) {
         return EXIT_SUCCESS;
     }
     if (list_users) {
-
+        DIR *d;
+        struct dirent *dir;
+        d = opendir("/etc/keystroke-pam");
+        if (d) {
+            while ((dir = readdir(d)) != NULL) {
+                if (dir->d_type == DT_REG) {
+                    char user_file_path[100] = "/etc/keystroke-pam/";
+                    strcat(user_file_path, dir->d_name);
+                    FILE *f = fopen(user_file_path,"r");
+                    if ( !f ) {
+                        return EXIT_FAILURE;
+                    }
+                    double norm_score;
+                    int rows, cols;
+                    if ( fscanf(f,"%lf%d%d", &norm_score, &rows, &cols) != 3 ) {
+                        return EXIT_FAILURE;
+                    }
+                    printf("%15s: %d\n", dir->d_name, rows);
+                }
+            }
+            closedir(d);
+        }
     }
 
     return 0;
