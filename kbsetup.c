@@ -23,6 +23,10 @@ const struct pam_conv conv = {
         NULL
 };
 
+void keyboard_events_engine(interaction_func, ) {
+
+}
+
 int main(int argc, char *argv[]) {
     /* check if user is root */
     if (getuid() != 0) {
@@ -40,8 +44,9 @@ int main(int argc, char *argv[]) {
     int rez;
     int argument_error = 0;
     opterr = 0;
+    /* getopt processing */
     while ((rez = getopt(argc,argv,"k:ca:u:d:l")) != -1){
-        switch (rez){
+        switch (rez) {
             /* keyboard setup */
             case 'k':
                 keyboard_setup = 1;
@@ -76,6 +81,7 @@ int main(int argc, char *argv[]) {
                 break;
         };
     };
+    /* options error check */
     if ((optind < argc) || argument_error ||
         ((keyboard_setup + check_keyboard + add_user + update_user + delete_user + list_users) != 1)) {
         printf("Используется лишь одна из опций:\n"
