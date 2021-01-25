@@ -126,7 +126,6 @@ double score_vector(int features_number, double *mean_vector, double *score_vect
 
 double score_keystrokes(double *fit_vectors, int fit_vectors_num, int features_number,
                         double *target_vector, double *norm_score) {
-    printf("__score_keystrokes__");
     double flight_mean, flight_std, hold_mean, hold_std;
     compute_std_mean(fit_vectors, fit_vectors_num, features_number, &flight_mean, &flight_std, &hold_mean, &hold_std);
     normalize_vectors(fit_vectors, fit_vectors_num, features_number, &flight_mean, &flight_std, &hold_mean, &hold_std);

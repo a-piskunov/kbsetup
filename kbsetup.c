@@ -14,7 +14,6 @@
 #include "manhattan.h"
 #include "key_input.h"
 
-#define KEYSTROKE_HELPER "/home/alexey/Documents/kbsetup/keystroke_helper"
 #define CONFIG_KEYBOARD "/etc/keyboard-config"
 #define PASSWORD_NUMBER 20
 #define PROGRAM_NAME "kbsetup"
@@ -33,8 +32,11 @@ int pam_auth(char *username, int interaction_num) {
         return 0;
     }
     retval = pam_authenticate(pamh, 0);
-    printf("retval %d\n", retval);
-    if (retval != PAM_SUCCESS) {
+//    printf("retval %d\n", retval);
+    if (retval == PAM_SUCCESS) {
+        printf("Корректный пароль\n");
+        return 1;
+    } else {
         if (retval == PAM_USER_UNKNOWN) {
             printf("Неизвестный пользователь\n");
             return -1;
@@ -42,15 +44,13 @@ int pam_auth(char *username, int interaction_num) {
             printf("Некорректный пароль\n");
             return 0;
         }
-    } else {
-        return 1;
     }
 }
 
 int check_keyboard_func(char *username, int interaction_num) {
     int rc = 0;
     char string [20];
-    printf("Введите несколько сиволов: ");
+    printf("Введите несколько символов: ");
     if(scanf("%19s", string) > 0) {
         return 1;
     } else {
@@ -64,12 +64,6 @@ int password_retry(char *username, int interaction_num) {
     getpass(prompt);
     return 1;
 }
-
-//char *const evval[3] = {
-//        "RELEASED",
-//        "PRESSED ",
-//        "REPEATED"
-//};
 
 struct features_collection {
     int success_interaction;
@@ -104,7 +98,7 @@ void keyboard_events_engine(char *keyboard_file, int (*interaction_func) (char *
         close(fd_from_helper[1]);
         _exit(EXIT_FAILURE);
     } else if (pid == (pid_t) 0) {
-        printf("fork: child\n");
+//        printf("fork: child\n");
         close(fd_to_helper[1]);
         close(fd_from_helper[0]);
         char pass[PAM_MAX_RESP_SIZE + 1];
@@ -153,7 +147,7 @@ void keyboard_events_engine(char *keyboard_file, int (*interaction_func) (char *
             timeout.tv_usec = 150000;
             int rv = select(fd + 1, &set, NULL, NULL, &timeout);
             if (rv == -1)
-                printf("helper: select error\n"); /* an error accured */
+                printf("helper: select error\n"); /* an error occured */
             else if (rv > 0) {
                 /* there was data to read */
                 int n = read(fd, ev + ev_offset, sizeof(ev));
@@ -189,19 +183,17 @@ void keyboard_events_engine(char *keyboard_file, int (*interaction_func) (char *
             _exit(EXIT_FAILURE);
         }
         close(fd);
-        printf("child return\n");
+//        printf("child return\n");
         _exit(EXIT_SUCCESS);
     } else if (pid > 0) {
         /* This is the parent process. */
-        printf("parent\n");
+//        printf("parent\n");
         close(fd_to_helper[0]); // close read end
         close(fd_from_helper[1]); // close write end
         int message_from_helper;
         if (read(fd_from_helper[0], &message_from_helper, sizeof(message_from_helper)) == -1) {
             printf("Cannot receive message from helper\n");
             _exit(EXIT_FAILURE);
-        } else {
-            printf("message_from_helper: %d\n", message_from_helper);
         }
         /* pam: correct or not */
         collected_features->success_interaction = interaction_func(username, interaction_num);
@@ -219,20 +211,20 @@ void keyboard_events_engine(char *keyboard_file, int (*interaction_func) (char *
         int keycodes_num = 0;
         int correct_keys_number;
         read(fd_from_helper[0], &correct_keys_number, sizeof(correct_keys_number));
-        printf("keys number: %d\n", correct_keys_number);
+//        printf("keys number: %d\n", correct_keys_number);
         struct input_event array_of_actions[300];
         read(fd_from_helper[0], array_of_actions, correct_keys_number * sizeof(struct input_event));
         close(fd_from_helper[0]);
-        for (int i = 0; i < correct_keys_number; i++) {
-            printf("Event: time %ld.%06ld, %d (%d)\n", array_of_actions[i].time.tv_sec,
-                   array_of_actions[i].time.tv_usec, array_of_actions[i].value, array_of_actions[i].code);
-        }
+//        for (int i = 0; i < correct_keys_number; i++) {
+//            printf("Event: time %ld.%06ld, %d (%d)\n", array_of_actions[i].time.tv_sec,
+//                   array_of_actions[i].time.tv_usec, array_of_actions[i].value, array_of_actions[i].code);
+//        }
         long int last_press_time_sec = 0;
         long int last_press_time_usec = 0;
         time_features = malloc(correct_keys_number * sizeof(*time_features));
         correct_keycodes = malloc(correct_keys_number * sizeof(*correct_keycodes));
         for (int i = 0; i < correct_keys_number; i++) {
-            printf("i: %d\n", i);
+//            printf("i: %d\n", i);
             if (array_of_actions[i].value == 1) {
                 correct_keycodes[keycodes_num] = array_of_actions[i].code;
                 keycodes_num++;
@@ -246,13 +238,13 @@ void keyboard_events_engine(char *keyboard_file, int (*interaction_func) (char *
                     }
                     time_features[features_num] = flight;
                     features_num++;
-                    printf("flight %f", flight);
+//                    printf("flight %f", flight);
                 }
                 bool not_found_up = true;
                 int j = i + 1;
-                printf("code value=1 %d\n", array_of_actions[i].code);
+//                printf("code value=1 %d\n", array_of_actions[i].code);
                 while (not_found_up && (j < correct_keys_number)) {
-                    printf("j %d\n", j);
+//                    printf("j %d\n", j);
                     if ((array_of_actions[i].code == array_of_actions[j].code) &&
                         (array_of_actions[j].value == 0)) {
                         /* hold time */
@@ -267,16 +259,16 @@ void keyboard_events_engine(char *keyboard_file, int (*interaction_func) (char *
                         time_features[features_num] = hold;
                         features_num++;
                         not_found_up = false;
-                        printf("hold %f\n", hold);
+//                        printf("hold %f\n", hold);
                     }
                     j++;
                 }
-                printf("last_press_time_sec: %ld last_press_time_usec: %ld\n", last_press_time_sec, last_press_time_usec);
+//                printf("last_press_time_sec: %ld last_press_time_usec: %ld\n", last_press_time_sec, last_press_time_usec);
                 last_press_time_sec = array_of_actions[i].time.tv_sec;
                 last_press_time_usec = array_of_actions[i].time.tv_usec;
             }
         }
-        printf("assigned: features_num %d, pressed_keycodes_num: %d\n", features_num, keycodes_num);
+//        printf("assigned: features_num %d, pressed_keycodes_num: %d\n", features_num, keycodes_num);
         collected_features->time_features_num = features_num;
         collected_features->time_features = time_features;
         collected_features->pressed_keycodes_num = keycodes_num;
@@ -292,7 +284,7 @@ void keyboard_events_engine(char *keyboard_file, int (*interaction_func) (char *
             _exit(EXIT_FAILURE);
         } else {
             retval = WEXITSTATUS(retval);
-            printf("retval %d\n", retval);
+//            printf("retval %d\n", retval);
         }
     }
     return;
@@ -323,6 +315,10 @@ int add_user_func(char *username) {
     struct features_collection returned_collection_pam;
     while (no_password) {
         keyboard_events_engine(keyboard_file, pam_auth, username, 1, &returned_collection_pam);
+        if ((returned_collection_pam.pressed_keycodes_num < 8) && returned_collection_pam.success_interaction) {
+            printf("Для создания эталона клавиатурного почерка при вводе пароля должно использоваться не менее 8 клавиш\n");
+            exit(EXIT_FAILURE);
+        }
         if (returned_collection_pam.success_interaction < 0) {
             exit(EXIT_FAILURE);
         } else if (returned_collection_pam.success_interaction) {
@@ -376,24 +372,25 @@ int add_user_func(char *username) {
         int validation_vec_num = 0;
         for (int i = 0; i < PASSWORD_NUMBER; i++) {
             if (i == score_number) {
-                printf("validation cont i = %d\n", i);
+//                printf("validation cont i = %d\n", i);
                 continue;
             }
             for (int j = 0; j < features_num; j++) {
                 validation_features[validation_vec_num * features_num + j] = passwords_features[i * features_num + j];
             }
-            printf("increment validation_vec_num: %d at i = %d\n", validation_vec_num++, i);
+//            printf("increment validation_vec_num: %d at i = %d\n", validation_vec_num++, i);
+            validation_vec_num++;
         }
-        printf("validation_features created\n");
+//        printf("validation_features created\n");
         double norm_score = -1;
         double *target = malloc(features_num * sizeof(double));
         for (int i = 0; i < features_num; i++) {
             target[i] = passwords_features[score_number * features_num + i];
         }
-        printf("target created\n");
+//        printf("target created\n");
         validation_scores[score_number] = score_keystrokes(validation_features, PASSWORD_NUMBER - 1,
                                                            features_num, target, &norm_score);
-        printf("validation_scores[score_number] assigned\n");
+//        printf("validation_scores[score_number] assigned\n");
         free(target);
     }
     free(validation_features);
@@ -405,6 +402,7 @@ int add_user_func(char *username) {
             bigger_thresh+= 1;
         }
     }
+    printf("\n");
     free(validation_scores);
     double *passwords_features_copy = malloc(features_num * PASSWORD_NUMBER * sizeof(double));
     for (int i = 0; i < PASSWORD_NUMBER; i++) {
@@ -427,6 +425,7 @@ int add_user_func(char *username) {
     free(passwords_features_copy);
     close(fd);
     printf("Кол-во вводов, не совпадающих с эталоном на валидации: %d\n", bigger_thresh);
+    printf("Эталон почерка пользователя %s сохранен\n", username);
     return EXIT_SUCCESS;
 }
 
@@ -498,9 +497,9 @@ int main(int argc, char *argv[]) {
     }
     if (keyboard_setup) {
         int fd = open(CONFIG_KEYBOARD, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
-        printf("keyboard_path %s\n", keyboard_path);
+//        printf("keyboard_path %s\n", keyboard_path);
         int written_bytes = write(fd, keyboard_path, strlen(keyboard_path));
-        printf("written bytes %d\n", written_bytes);
+//        printf("written bytes %d\n", written_bytes);
         if (written_bytes == -1) {
             printf("Ошибка записи пути в файл\n");
         }
@@ -511,17 +510,16 @@ int main(int argc, char *argv[]) {
         FILE *fp;
         char *keyboard_file = NULL;
         size_t len = 0;
-
         fp = fopen(CONFIG_KEYBOARD, "r");
         if (fp == NULL) {
             printf("Невозможно открыть файл конфигурации");
             exit(EXIT_FAILURE);
-        };
+        }
         if ((getline(&keyboard_file, &len, fp)) == -1) {
             printf("Невозможно прочитать файл конфигурации");
             exit(EXIT_FAILURE);
         }
-        printf("read string: %s\n", keyboard_file);
+//        printf("read string: %s\n", keyboard_file);
         struct features_collection returned_collection;
         keyboard_events_engine(keyboard_file, check_keyboard_func, NULL, 1, &returned_collection);
         free(keyboard_file);
@@ -558,7 +556,7 @@ int main(int argc, char *argv[]) {
     if (delete_user) {
         char user_file_path[100] = "/etc/keystroke-pam/";
         strcat(user_file_path, arg_username);
-        printf("user_file_path %s\n", user_file_path);
+//        printf("user_file_path %s\n", user_file_path);
         if (remove(user_file_path) < 0) {
             if (errno == ENOENT) {
                 printf("Эталона почерка пользователя %s не существует\n", arg_username);
@@ -594,6 +592,5 @@ int main(int argc, char *argv[]) {
             closedir(d);
         }
     }
-
     return 0;
 }
